@@ -27,13 +27,15 @@ public class Line implements Serializable {
     private Date date;
     private String user;
     private String content;
+    private String extra;
     @Enumerated(EnumType.STRING)
     private LineType type;
 
-    public Line(Date date, String user, String content, LineType type) {
+    public Line(Date date, String user, String content, String extra, LineType type) {
         this.date = date;
         this.user = user;
         this.content = content;
+        this.extra = extra;
         this.type = type;
     }
 
@@ -47,6 +49,7 @@ public class Line implements Serializable {
         result = 31 * result + (date != null ? date.hashCode() : 0);
         result = 31 * result + (user != null ? user.hashCode() : 0);
         result = 31 * result + (content != null ? content.hashCode() : 0);
+        result = 31 * result + (extra != null ? extra.hashCode() : 0);
         result = 31 * result + (type != null ? type.ordinal() : 0);
         return result;
     }
