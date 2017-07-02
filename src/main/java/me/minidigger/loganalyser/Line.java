@@ -3,14 +3,12 @@ package me.minidigger.loganalyser;
 import org.hibernate.annotations.GenericGenerator;
 
 import java.io.Serializable;
-import java.util.Date;
+import java.time.LocalTime;
 import javax.persistence.Entity;
 import javax.persistence.EnumType;
 import javax.persistence.Enumerated;
 import javax.persistence.GeneratedValue;
 import javax.persistence.Id;
-import javax.persistence.Temporal;
-import javax.persistence.TemporalType;
 
 import lombok.Data;
 
@@ -23,16 +21,15 @@ public class Line implements Serializable {
     @GeneratedValue(generator = "HashCodeGenerator")
     private int id;
 
-    @Temporal(TemporalType.TIME)
-    private Date date;
+    private LocalTime time;
     private String user;
     private String content;
     private String extra;
     @Enumerated(EnumType.STRING)
     private LineType type;
 
-    public Line(Date date, String user, String content, String extra, LineType type) {
-        this.date = date;
+    public Line(LocalTime time, String user, String content, String extra, LineType type) {
+        this.time = time;
         this.user = user;
         this.content = content;
         this.extra = extra;
@@ -46,7 +43,7 @@ public class Line implements Serializable {
     @Override
     public int hashCode() {
         int result = 1;
-        result = 31 * result + (date != null ? date.hashCode() : 0);
+        result = 31 * result + (time != null ? time.hashCode() : 0);
         result = 31 * result + (user != null ? user.hashCode() : 0);
         result = 31 * result + (content != null ? content.hashCode() : 0);
         result = 31 * result + (extra != null ? extra.hashCode() : 0);

@@ -9,16 +9,16 @@ import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -33,14 +33,22 @@ public class Magic {
     private static final String url = "jdbc:mysql://atlas.minidigger.me:3336/logs?useSSL=false";
     private static final String dialect = "org.hibernate.dialect.MySQL5Dialect";
 
-    private static final Pattern messagePattern = Pattern.compile("(?<time>\\[.*?\\]) (?<sender><.+?>) (?<message>.*)");
-    private static final Pattern actionPattern = Pattern.compile("(?<time>\\[.*?\\]) \\* (?<sender>.*) (?<message>.*)");
-    private static final Pattern nickPattern = Pattern.compile("(?<time>\\[.*?\\]) \\*\\*\\* (?<oldname>.*) is now known as (?<newname>.*)");
-    private static final Pattern joinsPattern = Pattern.compile("(?<time>\\[.*?\\]) \\*\\*\\* Joins: (?<name>.*) \\((?<hostmask>.*)\\)");
-    private static final Pattern quitsPattern = Pattern.compile("(?<time>\\[.*?\\]) \\*\\*\\* Quits: (?<name>.*) \\((?<hostmask>.*)\\)");
-    private static final Pattern partsPattern = Pattern.compile("(?<time>\\[.*?\\]) \\*\\*\\* Parts: (?<name>.*) \\((?<hostmask>.*)\\)");
-    private static final Pattern modePattern = Pattern.compile("(?<time>\\[.*?\\]) \\*\\*\\* (?<name>.*) sets mode: (?<mode>.*) (?<dude>.*)");
-    private static final Pattern kickPattern = Pattern.compile("(?<time>\\[.*?\\]) \\*\\*\\* (?<name>.*) was kicked by (?<op>.*) \\((?<reason>.*)\\)");
+    private static final Pattern messagePattern = Pattern.compile("\\[(?<time>.*?)] (?<sender><.+?>) (?<message>.*)");
+    // https://regex101.com/r/RyhhZ7/1
+    private static final Pattern noticePattern = Pattern.compile("\\[(?<time>.*?)] (?<sender>-.+?-) (?<message>.*)");
+    // https://regex101.com/r/nrAbFS/1
+    private static final Pattern actionPattern = Pattern.compile("\\[(?<time>.*?)] \\* (?<sender>.*) (?<message>.*)");
+    // https://regex101.com/r/17XK7u/1
+    private static final Pattern nickPattern = Pattern.compile("\\[(?<time>.*?)] \\*\\*\\* (?<oldname>.*) is now known as (?<newname>.*)");
+    // https://regex101.com/r/znBygk/2
+    private static final Pattern joinsPattern = Pattern.compile("\\[(?<time>.*?)] \\*\\*\\* Joins: (?<name>.*) \\((?<hostmask>.*)\\)");
+    // https://regex101.com/r/Dd3ntq/1
+    private static final Pattern quitsPattern = Pattern.compile("\\[(?<time>.*?)] \\*\\*\\* Quits: (?<name>.*) \\((?<hostmask>.*)\\) \\((?<reason>.*)\\)");
+    private static final Pattern partsPattern = Pattern.compile("\\[(?<time>.*?)] \\*\\*\\* Parts: (?<name>.*) \\((?<hostmask>.*)\\)");
+    private static final Pattern modePattern = Pattern.compile("\\[(?<time>.*?)] \\*\\*\\* (?<name>.*) sets mode: (?<mode>.*) (?<dude>.*)");
+    private static final Pattern kickPattern = Pattern.compile("\\[(?<time>.*?)] \\*\\*\\* (?<name>.*) was kicked by (?<op>.*) \\((?<reason>.*)\\)");
+    // https://regex101.com/r/r948RB/1
+    private static final Pattern topicPattern = Pattern.compile("\\[(?<time>.*?)] \\*\\*\\* (?<sender>.*) changes topic to '(?<message>.*)'");
 
     public static void main(String[] args) throws InterruptedException {
         StandardServiceRegistry registry = new StandardServiceRegistryBuilder()
@@ -83,6 +91,10 @@ public class Magic {
     }
 
     private static void loadData() {
+        AtomicInteger networkCount = new AtomicInteger(0);
+        AtomicInteger channelCount = new AtomicInteger(0);
+        AtomicInteger lineCount = new AtomicInteger(0);
+
         File root = new File("C:\\Users\\Martin\\Downloads\\temp\\log");
         File[] networks = root.listFiles();
         if (networks == null) {
@@ -127,97 +139,151 @@ public class Magic {
                                 return;
                             }
 
-                            Date date;
+                            LocalTime date;
                             String user;
                             String content;
                             String extra;
                             LineType type;
-                            // system
-                            if (line.contains("] *** ")) {
-                                if (line.contains(" is now known as ")) {
-                                    Matcher matcher = nickPattern.matcher(line);
-                                    String dateString = matcher.group("time");
-                                    date = parseDate(dateString);
-                                    user = matcher.group("oldname");
-                                    content = matcher.group("newname");
-                                    type = LineType.NICK_CHANGE;
-                                    extra = "";
-                                } else if (line.contains("] *** Joins: ")) {
-                                    Matcher matcher = joinsPattern.matcher(line);
-                                    String dateString = matcher.group("time");
-                                    date = parseDate(dateString);
-                                    user = matcher.group("name");
-                                    content = matcher.group("hostmask");
-                                    type = LineType.JOIN;
-                                    extra = "";
-                                } else if (line.contains("] *** Quits: ")) {
-                                    Matcher matcher = quitsPattern.matcher(line);
-                                    String dateString = matcher.group("time");
-                                    date = parseDate(dateString);
-                                    user = matcher.group("name");
-                                    content = matcher.group("hostmask");
-                                    type = LineType.LEAVE;
-                                    extra = "";
-                                } else if (line.contains("] *** Parts: ")) {
-                                    Matcher matcher = partsPattern.matcher(line);
-                                    String dateString = matcher.group("time");
-                                    date = parseDate(dateString);
-                                    user = matcher.group("name");
-                                    content = matcher.group("hostmask");
-                                    extra = "";
-                                    type = LineType.PART;
-                                } else if (line.contains("] was kicked by ")) {
-                                    Matcher matcher = partsPattern.matcher(line);
-                                    String dateString = matcher.group("time");
-                                    date = parseDate(dateString);
-                                    user = matcher.group("name");
-                                    content = matcher.group("reason");
-                                    extra = matcher.group("op");
-                                    type = LineType.KICK;
-                                } else if (line.contains(" sets mode: ")) {
-                                    Matcher matcher = modePattern.matcher(line);
-                                    String dateString = matcher.group("time");
-                                    date = parseDate(dateString);
-                                    user = matcher.group("name");
-                                    content = matcher.group("mode");
-                                    extra = matcher.group("dude");
-                                    type = LineType.MODE;
-                                } else {
-                                    System.out.println("COULD NOT PARSE LINE IN FILE " + logFile.getAbsolutePath() + ": " + line);
-                                    return;
+                            try {
+                                // system
+                                if (line.contains("] *** ")) {
+                                    if (line.contains(" is now known as ")) {
+                                        Matcher matcher = nickPattern.matcher(line);
+                                        if (!matcher.find()) {
+                                            System.out.println("COULD NOT PARSE NICK CHANGE " + line);
+                                            return;
+                                        }
+                                        String dateString = matcher.group("time");
+                                        date = parseDate(dateString);
+                                        user = matcher.group("oldname");
+                                        content = matcher.group("newname");
+                                        type = LineType.NICK_CHANGE;
+                                        extra = "";
+                                    } else if (line.contains("] *** Joins: ")) {
+                                        Matcher matcher = joinsPattern.matcher(line);
+                                        if (!matcher.find()) {
+                                            System.out.println("COULD NOT PARSE JOIN " + line);
+                                            return;
+                                        }
+                                        String dateString = matcher.group("time");
+                                        date = parseDate(dateString);
+                                        user = matcher.group("name");
+                                        content = matcher.group("hostmask");
+                                        type = LineType.JOIN;
+                                        extra = "";
+                                    } else if (line.contains("] *** Quits: ")) {
+                                        Matcher matcher = quitsPattern.matcher(line);
+                                        if (!matcher.find()) {
+                                            System.out.println("COULD NOT PARSE QUIT " + line);
+                                            return;
+                                        }
+                                        String dateString = matcher.group("time");
+                                        date = parseDate(dateString);
+                                        user = matcher.group("name");
+                                        content = matcher.group("hostmask");
+                                        type = LineType.LEAVE;
+                                        extra = "";
+                                    } else if (line.contains("] *** Parts: ")) {
+                                        Matcher matcher = partsPattern.matcher(line);
+                                        if (!matcher.find()) {
+                                            System.out.println("COULD NOT PARSE PART " + line);
+                                            return;
+                                        }
+                                        String dateString = matcher.group("time");
+                                        date = parseDate(dateString);
+                                        user = matcher.group("name");
+                                        content = matcher.group("hostmask");
+                                        extra = "";
+                                        type = LineType.PART;
+                                    } else if (line.contains(" was kicked by ")) {
+                                        Matcher matcher = kickPattern.matcher(line);
+                                        if (!matcher.find()) {
+                                            System.out.println("COULD NOT PARSE KICK " + line);
+                                            return;
+                                        }
+                                        String dateString = matcher.group("time");
+                                        date = parseDate(dateString);
+                                        user = matcher.group("name");
+                                        content = matcher.group("reason");
+                                        extra = matcher.group("op");
+                                        type = LineType.KICK;
+                                    } else if (line.contains(" sets mode: ")) {
+                                        Matcher matcher = modePattern.matcher(line);
+                                        if (!matcher.find()) {
+                                            System.out.println("COULD NOT PARSE MODE " + line);
+                                            return;
+                                        }
+                                        String dateString = matcher.group("time");
+                                        date = parseDate(dateString);
+                                        user = matcher.group("name");
+                                        content = matcher.group("mode");
+                                        extra = matcher.group("dude");
+                                        type = LineType.MODE;
+                                    } else if (line.contains(" changes topic to '")) {
+                                        Matcher matcher = topicPattern.matcher(line);
+                                        if (!matcher.find()) {
+                                            System.out.println("COULD NOT PARSE TOPIC " + line);
+                                            return;
+                                        }
+                                        String dateString = matcher.group("time");
+                                        date = parseDate(dateString);
+                                        user = matcher.group("sender");
+                                        content = matcher.group("message");
+                                        extra = "";
+                                        type = LineType.TOPIC;
+                                    } else {
+                                        System.out.println("COULD NOT PARSE LINE IN FILE " + logFile.getAbsolutePath() + ": " + line);
+                                        return;
+                                    }
                                 }
-                            }
-                            // action
-                            else if (line.contains("] * ")) {
-                                Matcher matcher = actionPattern.matcher(line);
-                                String dateString = matcher.group("time");
-                                date = parseDate(dateString);
-                                user = matcher.group("sender");
-                                content = matcher.group("content");
-                                extra = "";
-                                type = LineType.ACTION;
-                            }
-                            // message
-                            else {
-                                Matcher matcher = messagePattern.matcher(line);
-                                if (!matcher.matches()) {
-                                    System.out.println("MATCHER DID NOT MATCH " + line);
+                                // action
+                                else if (line.contains("] * ") && (!line.contains("<") && line.indexOf("<") < line.indexOf("*"))) {
+                                    Matcher matcher = actionPattern.matcher(line);
+                                    if (!matcher.find()) {
+                                        System.out.println("COULD NOT PARSE ACTION " + line);
+                                        return;
+                                    }
+                                    String dateString = matcher.group("time");
+                                    date = parseDate(dateString);
+                                    user = matcher.group("sender");
+                                    content = matcher.group("message");
+                                    extra = "";
+                                    type = LineType.ACTION;
                                 }
-                                String dateString = matcher.group("time");
-                                date = parseDate(dateString);
-                                user = matcher.group("sender");
-                                content = matcher.group("message");
-                                extra = "";
-                                type = fPrivateChan ? LineType.PRIVATE_MESSAGE : LineType.MESSAGE;
-                            }
+                                // message
+                                else {
+                                    Matcher matcher = messagePattern.matcher(line);
+                                    boolean notice = false;
+                                    if (!matcher.matches()) {
+                                        matcher = noticePattern.matcher(line);
+                                        notice = true;
+                                        if (!matcher.matches()) {
+                                            // boring ZNC messages
+                                            //System.out.println("MESSAGE MATCHER DID NOT MATCH " + line);
+                                            return;
+                                        }
+                                    }
+                                    String dateString = matcher.group("time");
+                                    date = parseDate(dateString);
+                                    user = matcher.group("sender");
+                                    content = matcher.group("message");
+                                    extra = "";
+                                    type = notice ? LineType.NOTICE : fPrivateChan ? LineType.PRIVATE_MESSAGE : LineType.MESSAGE;
+                                }
 
-                            // create line and add to list
-                            Line l = new Line(date, user, content, extra, type);
-                            lines.add(l);
+                                // create line and add to list
+                                Line l = new Line(date, user, content, extra, type);
+                                lines.add(l);
+                                lineCount.incrementAndGet();
+                            } catch (Exception ex) {
+                                System.out.println("ERROR WHILE PARSING LINE " + line);
+                                ex.printStackTrace();
+                                System.exit(-1);
+                            }
                         });
-                    } catch (IOException ex) {
-                        ex.printStackTrace();
-                        System.out.println("ERROR WHILE READING FILE " + logFile.getAbsolutePath());
+                    } catch (IOException | UncheckedIOException ex) {
+                        // ex.printStackTrace();
+                        System.out.println("ERROR WHILE READING FILE " + ex.getClass().getName() + " " + logFile.getAbsolutePath());
                     }
                 });
 
@@ -225,19 +291,22 @@ public class Magic {
                 List<Line> temp = new ArrayList<>(lines);
                 Channel channel = new Channel(name, privateChan, temp);
                 channelList.add(channel);
+                channelCount.incrementAndGet();
 
-                System.out.println("FINISHED CHANNEL " + channelFile.getName());
+                System.out.println("FINISHED CHANNEL " + networkFile.getName() + " " + channelFile.getName());
             });
 
             // create network and add to list
             List<Channel> temp = new ArrayList<>(channelList);
             Network network = new Network(networkFile.getName(), temp);
             networkList.add(network);
+            networkCount.incrementAndGet();
 
             System.out.println("FINISH NETWORK " + networkFile.getName());
         });
 
-        System.out.println("FINISHED! SAVING");
+        System.out.println("FINISHED! SAVING N:" + networkCount.get() + " C:" + channelCount.get() + " L:" + lineCount.get());
+
         session(session -> {
             networkList.forEach(network -> {
                 network.getChannels().forEach(channel -> {
@@ -249,20 +318,15 @@ public class Magic {
         });
     }
 
-    private static Date parseDate(String dateString) {
-        try {
-            return SimpleDateFormat.getTimeInstance().parse(dateString.replace("[", "").replace("]", ""));
-        } catch (ParseException e) {
-            e.printStackTrace();
-            return new Date(0);
-        }
+    private static LocalTime parseDate(String dateString) {
+        return LocalTime.parse(dateString);
     }
 
     private static void insertTestData() {
         Network network = new Network("TestNetwork", new ArrayList<>());
         Channel channel = new Channel("TestChannel", false, new ArrayList<>());
         network.getChannels().add(channel);
-        Line line = new Line(new Date(1337), "MiniDigger", "This is a test", "", LineType.MESSAGE);
+        Line line = new Line(LocalTime.now(), "MiniDigger", "This is a test", "", LineType.MESSAGE);
         channel.getLines().add(line);
 
         session(session -> {
