@@ -1,28 +1,31 @@
 package me.minidigger.loganalyser;
 
-import org.hibernate.annotations.GenericGenerator;
-
 import java.io.Serializable;
 import java.time.LocalTime;
 import javax.persistence.Entity;
 import javax.persistence.EnumType;
 import javax.persistence.Enumerated;
 import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
 import javax.persistence.Id;
+import javax.persistence.Lob;
+import javax.persistence.Table;
+import javax.persistence.UniqueConstraint;
 
 import lombok.Data;
 
 @Data
 @Entity
+@Table(uniqueConstraints = {@UniqueConstraint(columnNames = {"time", "user", "content", "extra", "type"})})
 public class Line implements Serializable {
 
     @Id
-    @GenericGenerator(name = "HashCodeGenerator", strategy = "me.minidigger.loganalyser.HashCodeGenerator")
-    @GeneratedValue(generator = "HashCodeGenerator")
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private int id;
 
     private LocalTime time;
     private String user;
+    @Lob
     private String content;
     private String extra;
     @Enumerated(EnumType.STRING)
@@ -38,16 +41,5 @@ public class Line implements Serializable {
 
     protected Line() {
         // JPA
-    }
-
-    @Override
-    public int hashCode() {
-        int result = 1;
-        result = 31 * result + (time != null ? time.hashCode() : 0);
-        result = 31 * result + (user != null ? user.hashCode() : 0);
-        result = 31 * result + (content != null ? content.hashCode() : 0);
-        result = 31 * result + (extra != null ? extra.hashCode() : 0);
-        result = 31 * result + (type != null ? type.ordinal() : 0);
-        return result;
     }
 }

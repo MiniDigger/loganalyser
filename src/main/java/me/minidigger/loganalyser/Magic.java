@@ -10,7 +10,9 @@ import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.time.Duration;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -33,9 +35,10 @@ public class Magic {
     private static final String url = "jdbc:mysql://atlas.minidigger.me:3336/logs?useSSL=false";
     private static final String dialect = "org.hibernate.dialect.MySQL5Dialect";
 
-    private static final Pattern messagePattern = Pattern.compile("\\[(?<time>.*?)] (?<sender><.+?>) (?<message>.*)");
-    // https://regex101.com/r/RyhhZ7/1
-    private static final Pattern noticePattern = Pattern.compile("\\[(?<time>.*?)] (?<sender>-.+?-) (?<message>.*)");
+    // https://regex101.com/r/sPEEZU/1
+    private static final Pattern messagePattern = Pattern.compile("\\[(?<time>.*?)] <(?<sender>.+?)> (?<message>.*)");
+    // https://regex101.com/r/RyhhZ7/2
+    private static final Pattern noticePattern = Pattern.compile("\\[(?<time>.*?)] -(?<sender>.+?)- (?<message>.*)");
     // https://regex101.com/r/nrAbFS/1
     private static final Pattern actionPattern = Pattern.compile("\\[(?<time>.*?)] \\* (?<sender>.*) (?<message>.*)");
     // https://regex101.com/r/17XK7u/1
@@ -60,13 +63,18 @@ public class Magic {
                 .applySetting("hibernate.dialect", dialect)
                 // misc settings
                 .applySetting("hibernate.hbm2ddl.auto", "update")
-                .applySetting("hibernate.show_sql", true + "")
+                .applySetting("hibernate.show_sql", false)
                 //TODO apparently this is an anti-pattern [0], but it fixes an issue so ¯\_(ツ)_/¯
                 // [0]: https://vladmihalcea.com/2016/09/05/the-hibernate-enable_lazy_load_no_trans-anti-pattern/
                 .applySetting("hibernate.enable_lazy_load_no_trans", true)
                 .applySetting("hibernate.connection.autocommit", true)
                 // connection pool
                 .applySetting("hibernate.connection.pool_size", 10 + "")
+                // batch
+                .applySetting("hibernate.jdbc.batch_versioned_data", true)
+                .applySetting("hibernate.order_updates", true)
+                .applySetting("hibernate.order_inserts", true)
+                .applySetting("hibernate.jdbc.batch_size", 20)
                 .build();
 
         MetadataSources sources = new MetadataSources(registry);
@@ -91,6 +99,8 @@ public class Magic {
     }
 
     private static void loadData() {
+        LocalTime startTime = LocalTime.now();
+
         AtomicInteger networkCount = new AtomicInteger(0);
         AtomicInteger channelCount = new AtomicInteger(0);
         AtomicInteger lineCount = new AtomicInteger(0);
@@ -104,7 +114,7 @@ public class Magic {
         Set<Network> networkList = Collections.newSetFromMap(new ConcurrentHashMap<>());
         // for each network
         Arrays.stream(networks).parallel().forEach(networkFile -> {
-            System.out.println("NETWORK " + networkFile.getName());
+            //System.out.println("NETWORK " + networkFile.getName());
             File[] channels = networkFile.listFiles();
             if (channels == null) {
                 return;
@@ -113,7 +123,7 @@ public class Magic {
             Set<Channel> channelList = Collections.newSetFromMap(new ConcurrentHashMap<>());
             // for each channel
             Arrays.stream(channels).parallel().forEach(channelFile -> {
-                System.out.println("CHANNEL " + channelFile.getName());
+                //System.out.println("CHANNEL " + channelFile.getName());
                 File[] logs = channelFile.listFiles();
                 if (logs == null) {
                     return;
@@ -131,7 +141,7 @@ public class Magic {
                 Set<Line> lines = Collections.newSetFromMap(new ConcurrentHashMap<>());
                 // for each logfile
                 Arrays.stream(logs).parallel().forEach(logFile -> {
-                    try (Stream<String> readLines = Files.lines(logFile.toPath())) {
+                    try (Stream<String> readLines = Files.lines(logFile.toPath(), StandardCharsets.ISO_8859_1)) {
                         // for each line
                         readLines.parallel().forEach(line -> {
                             if (!line.startsWith("[")) {
@@ -146,7 +156,7 @@ public class Magic {
                             LineType type;
                             try {
                                 // system
-                                if (line.contains("] *** ")) {
+                                if (line.contains("] *** ") && (!line.contains("<") && line.indexOf("<") < line.indexOf("***"))) {
                                     if (line.contains(" is now known as ")) {
                                         Matcher matcher = nickPattern.matcher(line);
                                         if (!matcher.find()) {
@@ -214,7 +224,13 @@ public class Magic {
                                             return;
                                         }
                                         String dateString = matcher.group("time");
-                                        date = parseDate(dateString);
+                                        try {
+                                            date = parseDate(dateString);
+                                        } catch (Exception ex) {
+                                            System.out.println("LINE " + line);
+                                            System.exit(-1);
+                                            return;
+                                        }
                                         user = matcher.group("name");
                                         content = matcher.group("mode");
                                         extra = matcher.group("dude");
@@ -266,6 +282,10 @@ public class Magic {
                                     String dateString = matcher.group("time");
                                     date = parseDate(dateString);
                                     user = matcher.group("sender");
+                                    // don't save nickserv etc ;)
+                                    if (user.contains("Serv")) {
+                                        return;
+                                    }
                                     content = matcher.group("message");
                                     extra = "";
                                     type = notice ? LineType.NOTICE : fPrivateChan ? LineType.PRIVATE_MESSAGE : LineType.MESSAGE;
@@ -282,18 +302,19 @@ public class Magic {
                             }
                         });
                     } catch (IOException | UncheckedIOException ex) {
-                        // ex.printStackTrace();
+                        ex.printStackTrace();
                         System.out.println("ERROR WHILE READING FILE " + ex.getClass().getName() + " " + logFile.getAbsolutePath());
+                        System.exit(-1);
                     }
                 });
 
                 // create channel and add to list
                 List<Line> temp = new ArrayList<>(lines);
-                Channel channel = new Channel(name, privateChan, temp);
+                Channel channel = new Channel(name, networkFile.getName(), privateChan, temp);
                 channelList.add(channel);
                 channelCount.incrementAndGet();
 
-                System.out.println("FINISHED CHANNEL " + networkFile.getName() + " " + channelFile.getName());
+                //System.out.println("FINISHED CHANNEL " + networkFile.getName() + " " + channelFile.getName());
             });
 
             // create network and add to list
@@ -302,20 +323,38 @@ public class Magic {
             networkList.add(network);
             networkCount.incrementAndGet();
 
-            System.out.println("FINISH NETWORK " + networkFile.getName());
+            //System.out.println("FINISH NETWORK " + networkFile.getName());
         });
-
+        LocalTime stopTime = LocalTime.now();
+        System.out.println("TOOK " + Duration.between(startTime, stopTime).getSeconds() + "s");
         System.out.println("FINISHED! SAVING N:" + networkCount.get() + " C:" + channelCount.get() + " L:" + lineCount.get());
 
-        session(session -> {
-            networkList.forEach(network -> {
-                network.getChannels().forEach(channel -> {
-                    channel.getLines().forEach(session::saveOrUpdate);
-                    session.saveOrUpdate(channel);
-                });
-                session.saveOrUpdate(network);
-            });
-        });
+//        startTime = LocalTime.now();
+//        session(session -> {
+//            networkList.stream().filter(network -> network.getName().equalsIgnoreCase("basin")).forEach(network -> {
+//                network.getChannels().forEach(channel -> {
+//                    for (int i = 0; i < channel.getLines().size(); i++) {
+//                        Line line = channel.getLines().get(i);
+//                        //System.out.println("SAVE LINE " + line);
+//                        session.saveOrUpdate(line);
+//                        // System.out.println("DONE LINE");
+//                        if (i % 20 == 0 && i > 0) {
+//                            session.flush();
+//                            session.clear();
+//                            System.out.println("FLUSH");
+//                        }
+//                    }
+//                    System.out.println("SAVE CHANNEL " + channel.getName());
+//                    session.saveOrUpdate(channel);
+//                    System.out.println("DONE CHANNEL");
+//                });
+//                System.out.println("SAVE NETWORK " + network.getName());
+//                session.save(network);
+//                System.out.println("DONE");
+//            });
+//        });
+//        stopTime = LocalTime.now();
+//        System.out.println("TOOK " + Duration.between(startTime, stopTime).getSeconds() + "s");
     }
 
     private static LocalTime parseDate(String dateString) {
@@ -324,7 +363,7 @@ public class Magic {
 
     private static void insertTestData() {
         Network network = new Network("TestNetwork", new ArrayList<>());
-        Channel channel = new Channel("TestChannel", false, new ArrayList<>());
+        Channel channel = new Channel("TestChannel", "TestNetwork", false, new ArrayList<>());
         network.getChannels().add(channel);
         Line line = new Line(LocalTime.now(), "MiniDigger", "This is a test", "", LineType.MESSAGE);
         channel.getLines().add(line);
